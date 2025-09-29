@@ -1,0 +1,149 @@
+#Recommendation system are used in many sectors to priortised the contents of our choice.
+#type of recommender system are 1.content based(content similarity) and 2.collaboration filtering(user similarity) 3.Hybrid(content+user).
+#we are building the content based recommendor system for movies.
+#We are taking input of moive from user and then our model will recommend top 5 movies. 
+
+import pandas as pd
+import numpy as np
+
+#1.Importing 2 datasets 
+movies=pd.read_csv("C:\\Users\\rushi\\OneDrive\\Desktop\\DATA SCIENCE\\Data sets\\TMDB 5k movies dataset\\tmdb_5000_movies.csv")
+credits=pd.read_csv("C:\\Users\\rushi\\OneDrive\\Desktop\\DATA SCIENCE\\Data sets\\TMDB 5k movies dataset\\tmdb_5000_credits.csv")
+pd.set_option('display.max_columns',None)
+print(movies.head(10))
+print(credits.head(10))
+print(movies.columns)
+print(credits.columns)
+
+#merging the two datasets together
+movies=movies.merge(credits,on='title')
+print(movies.shape)
+
+#2.Preprocessing
+#First feature selection: usefull features are genres,id,keywords,title,overview,cast,crew
+movies=movies[['genres','id','keywords','title','overview','cast','crew']]
+print('Movies Columns:-',movies.columns,'/n')
+
+#handling missing null values
+print(movies.isnull().sum())  #missing the 3 rows in overview so we are droping that rows instead.
+movies.dropna(inplace=True)
+print('null values:-',movies.isnull().sum(),'/n')
+
+#Duplicates
+print('Duplicates:-',movies.duplicated().sum()) #No duplicates are present
+
+# Proper Formating the columns 
+# print(movies.iloc[0].genres) # we need to extract only the genres tags from list(dict).
+#Here the data is list(dict) so we need only the names therefore we are creating a function.
+def formating(obj):
+    import ast                 #ast(Abstract Syntax Trees) library , It’s a built-in Python library that lets you interact with Python code itself (like parsing, analyzing, or modifying it as a tree structure)
+    frame=[]
+    for i in ast.literal_eval(obj):  #literal_eval() safely evaluates a string that looks like a Python literal (like a list, dict, tuple, int, float, etc.) and converts it into the actual Python object.
+        frame.append(i['name'])
+    return frame
+
+movies['genres']=movies['genres'].apply(formating) #.apply(function) is Pandas’ way of saying:➡️ “apply this function to every element in the Series, one by one”. Means this function will run all rows of columns one by one as per our function.
+# print(movies['genres'].head(3))
+movies['keywords']=movies['keywords'].apply(formating)
+# pd.set_option('Display.max_colwidth',None)
+
+def formating2(obj):      #defineing new function to get only top 3 charectors name from each row.
+    import ast
+    frame=[]
+    cnt=0
+    for i in ast.literal_eval(obj):
+        cnt+=1
+        if cnt<=3:
+            frame.append(i['name'])
+        else:
+            break
+    return frame        
+movies['cast']=movies['cast'].apply(formating2)
+pd.set_option('display.max_colwidth',None)
+# print(movies['crew'].head(1))
+
+def formating3(obj):
+    import ast
+    frame=[]
+    for i in ast.literal_eval(obj):
+        if i['job']=='Director':
+            frame.append(i['name'])
+    return frame
+movies['crew']=movies['crew'].apply(formating3)
+
+movies=movies.rename(columns={'crew':'director'})
+print(movies.dtypes)
+
+#Converting the overview column into list which is useful for concatinating in further process.
+print(movies['overview'].head(1))
+movies['overview']=movies['overview'].apply(lambda X:X.split())
+print(movies.head(2))
+
+#Removing the spaces in the words beacause it can conflict if same name is recognised.
+movies['cast']=movies['cast'].apply(lambda x:[i.replace(' ','') for i in x]) #using lambda and lsit comprehension
+movies['director']=movies['director'].apply(lambda x:[i.replace(' ','')for i in x])
+movies['genres']=movies['genres'].apply(lambda x:[i.replace(' ','') for i in x])
+movies['keywords']=movies['keywords'].apply(lambda x:[i.replace(' ','') for i in x])
+
+print(movies.head(3))
+
+#creating a columns of tags which concatinates all features.
+movies['tags']=movies['overview']+movies['genres']+movies['keywords']+movies['cast']+movies['director']
+print(movies.head(2))
+
+new_df=movies[['id','title','tags']]
+print(new_df.head(2))
+
+new_df['tags']=new_df['tags'].apply(lambda x:' '.join(x))
+print(new_df.head(2))
+
+#converting all the data into lowercase because it is mostly recommended 
+new_df['tags']=new_df['tags'].apply(lambda x:x.lower()) #this lambda(x:x.lower()) here, first x represent each value in each row and second x.lower() represent the function to be apply on each value. 
+print(new_df.head(2))
+
+#Now we are using Text vectorization: It has different types 
+#such as 1.Bag of words(BoW): counts repetation of each word ,2.Term freq-Inverse document frequency(TF-IDF):adjust word importance according to weights(ex.If “actor” appears in few docs → higher weight.If “is” appears in all docs → lower weight.). 3.One hot encoding: creates a unique integer for each word . 4.Word Embeddings(dense Vectors):words are mapped into continuous vector space where similar words are closer(ex.Word2Vec, GloVe, FastText). 5.Contextual Embeddings:Words get different vectors depending on context ex(BERT, GPT, ELMo, Transformer-based models)
+#we are using Bag of words
+from sklearn.feature_extraction.text import CountVectorizer 
+cv=CountVectorizer(max_features=5000,stop_words='english') #stop words are the common words which ignore in english(such as is,the,in,on,she,he,and,etc)
+vectors=cv.fit_transform(new_df['tags']).toarray() #by using converting to array gives us the clean 2d or dense array rather than sparse matrix.
+print(cv.get_feature_names_out(new_df['tags']).shape)
+print(vectors[0])
+
+#Now we have the problem , our vectorizor is asuming according to each aplhabets(ex.love,loving,loved are 3 differnt words).so we need to solve this beacuse it will conclude with large features.
+#so to solve this issue we are using nlkt class.
+from nltk.stem.porter import PorterStemmer #It is used for NLP 
+ps=PorterStemmer()
+def steam(text):
+    frame=[]
+    for i in text.split(): #using spliting to convert str to list
+        frame.append(ps.stem(i))
+    return ' '.join(frame)  
+
+new_df['tags']=new_df['tags'].apply(steam)
+print(cv.get_feature_names_out(new_df['tags']))
+#Now the problem is solved.
+
+#Calculating the distance between each vectors in our 5000D array.
+#using cosine distance instead of eucliden beacuse when dealing with high dimensional data it fails.
+#So our distance is inversly proportional to similarity of movies.
+from sklearn.metrics.pairwise import cosine_similarity
+similarity=cosine_similarity(vectors) #it needs matrix therefore we have given the vector variable instead of column df.
+print(similarity[0]) #this give the similarity in terms of 0 to 1 . where 1 is fully match and 0 is no match.
+
+#Now defining the function to return top 5 movies.
+def recommend(movie):
+    movie_index=new_df[new_df['title']==movie].index[0]
+    sim=cosine_similarity(vectors)
+    dist=sim[movie_index]
+    sort=sorted(list(enumerate(dist)),reverse=True,key=lambda x:x[1])[1:6]
+    for i in sort:
+        five_movies=new_df.iloc[i[0]].title
+        print(five_movies)
+
+# print(recommend(input('Enter a movies name: ')))
+
+import pickle
+pickle.dump(new_df,open('movies.pkl','wb'))
+pickle.dump(vectors,open('vectors.pkl','wb'))
+pickle.dump(new_df,open('DataFrame.pkl','wb'))
